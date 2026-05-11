@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protótipo Whisper</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f9; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 2rem; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 400px; }
+        button { padding: 12px 24px; font-size: 1rem; border: none; border-radius: 50px; cursor: pointer; transition: 0.3s; margin: 5px; }
+        .btn-start { background: #28a745; color: white; }
+        .btn-stop { background: #dc3545; color: white; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #status { margin: 15px 0; font-weight: bold; color: #555; }
+        #result { background: #e9ecef; padding: 15px; border-radius: 10px; min-height: 50px; text-align: left; font-style: italic; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Whisper Test</h2>
+    <div id="status">Pronto para gravar</div>
+    
+    <button id="startBtn" class="btn-start">Iniciar Gravação</button>
+    <button id="stopBtn" class="btn-stop" disabled>Parar e Transcrever</button>
+
+    <p><strong>Resultado:</strong></p>
+    <div id="result">A transcrição aparecerá aqui...</div>
+</div>
+
+<script>
+    let mediaRecorder;
+    let audioChunks = [];
+
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusDiv = document.getElementById('status');
+    const resultDiv = document.getElementById('result');
+
+    startBtn.onclick = async () => {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (event) => audioChunks.push(event.data);
+        
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/m4a' });
+            enviarParaBackend(audioBlob);
+        };
+
+        mediaRecorder.start();
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        statusDiv.innerText = "🔴 Gravando áudio...";
+        statusDiv.style.color = "red";
+    };
+
+    stopBtn.onclick = () => {
+        mediaRecorder.stop();
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        statusDiv.innerText = "⏳ Processando com IA...";
+        statusDiv.style.color = "orange";
+    };
+
+    async function enviarParaBackend(blob) {
+        const formData = new FormData();
+        formData.append('file', blob, 'audio.m4a');
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/transcrever', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            
+            if (data.texto) {
+                resultDiv.innerText = data.texto;
+                statusDiv.innerText = "✅ Concluído!";
+                statusDiv.style.color = "green";
+            } else {
+                resultDiv.innerText = "Erro: " + data.error;
+            }
+        } catch (err) {
+            resultDiv.innerText = "Erro ao conectar no servidor. Verifique se o app.py está rodando.";
+        }
+    }
+</script>
+</body>
+</html>
