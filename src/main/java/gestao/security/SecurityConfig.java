@@ -43,7 +43,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
 
-                // Somente MEDICO pode acessar pacientes e prontuários
+                // Assistente pode apenas visualizar pacientes (GET); edição/exclusão só para MEDICO
+                .requestMatchers(HttpMethod.GET, "/api/pacientes/**").hasAnyRole("MEDICO", "ASSISTENTE")
                 .requestMatchers("/api/pacientes/**").hasRole("MEDICO")
 
                 // Dashboard e consultas: ambos os roles
@@ -68,7 +69,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
+    public CorsConfigurationSource corsConfigurationSource()
+     {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:5173"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));

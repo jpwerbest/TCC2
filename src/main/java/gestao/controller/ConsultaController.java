@@ -58,6 +58,11 @@ public class ConsultaController {
             if (consultaAtualizada.getPaciente() != null) {
                 consulta.setPaciente(consultaAtualizada.getPaciente());
             }
+            // Permite atualizar (e limpar) o registro de atendimento e observações
+            consulta.setRegistroAtendimento(consultaAtualizada.getRegistroAtendimento());
+            if (consultaAtualizada.getObservacoesAgendamento() != null) {
+                consulta.setObservacoesAgendamento(consultaAtualizada.getObservacoesAgendamento());
+            }
             Consulta salva = consultaRepository.save(consulta);
             return ResponseEntity.ok(salva);
         }).orElse(ResponseEntity.notFound().build());

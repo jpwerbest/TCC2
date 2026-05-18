@@ -1,5 +1,6 @@
 {
     "maven.view": "hierarchical",
     "claudeCodeChat.permissions.yoloMode": true,
-    "java.configuration.updateBuildConfiguration": "interactive"
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "java.compile.nullAnalysis.mode": "disabled"
 }
