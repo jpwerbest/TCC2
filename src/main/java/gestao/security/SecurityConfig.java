@@ -43,9 +43,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
 
-                // Assistente pode apenas visualizar pacientes (GET); edição/exclusão só para MEDICO
+                // Assistente pode visualizar e criar pacientes; edição/exclusão só para MEDICO
                 .requestMatchers(HttpMethod.GET, "/api/pacientes/**").hasAnyRole("MEDICO", "ASSISTENTE")
-                .requestMatchers("/api/pacientes/**").hasRole("MEDICO")
+                .requestMatchers(HttpMethod.POST, "/api/pacientes/**").hasAnyRole("MEDICO", "ASSISTENTE")
+                .requestMatchers(HttpMethod.PUT, "/api/pacientes/**").hasRole("MEDICO")
+                .requestMatchers(HttpMethod.DELETE, "/api/pacientes/**").hasRole("MEDICO")
 
                 // Dashboard e consultas: ambos os roles
                 .requestMatchers("/api/consultas/**").hasAnyRole("MEDICO", "ASSISTENTE")

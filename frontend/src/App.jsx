@@ -666,12 +666,52 @@ function Dashboard({ consultas, pacientes, user }) {
   const canceladas = consultas.filter(c => c.status === "CANCELADA").length;
   const hoje_consultas = consultas.filter(c => new Date(c.dataHora).toDateString() === hoje).length;
 
-  const proximas = [...consultas]
-    .filter(c => c.status === "AGENDADA" && new Date(c.dataHora) > new Date())
-    .sort((a, b) => new Date(a.dataHora) - new Date(b.dataHora))
-    .slice(0, 5);
+  const [funnelFiltro, setFunnelFiltro] = useState(null); // null | "AGENDADA" | "REALIZADA" | "CANCELADA"
 
   const isMedico = user.role === "MEDICO";
+
+  const FUNIL_ITENS = [
+    { status: "AGENDADA",  label: "Agendadas",  count: agendadas,  color: palette.amber,   bg: palette.amberLight,   icon: "⏳" },
+    { status: "REALIZADA", label: "Realizadas", count: realizadas, color: palette.success,  bg: palette.successLight, icon: "✅" },
+    { status: "CANCELADA", label: "Canceladas", count: canceladas, color: palette.danger,   bg: palette.dangerLight,  icon: "❌" },
+  ];
+
+  // Pacientes com stats, filtrados pelo funil se ativo
+  const patientStats = pacientes.map(p => {
+    const pConsultas = consultas.filter(c => c.paciente?.id === p.id);
+    return {
+      id: p.id,
+      nome: p.nomeCompleto,
+      cpf: p.cpf,
+      agendadas:  pConsultas.filter(c => c.status === "AGENDADA").length,
+      realizadas: pConsultas.filter(c => c.status === "REALIZADA").length,
+      canceladas: pConsultas.filter(c => c.status === "CANCELADA").length,
+      total:      pConsultas.length,
+      filtrado:   funnelFiltro ? pConsultas.filter(c => c.status === funnelFiltro).length : pConsultas.length,
+    };
+  })
+    .filter(p => (funnelFiltro ? p.filtrado > 0 : p.total > 0))
+    .sort((a, b) => b.filtrado - a.filtrado)
+    .slice(0, 8);
+
+  // Tabela inferior: filtra por funil ou mostra próximas agendadas
+  const tabelaConsultas = funnelFiltro
+    ? [...consultas]
+        .filter(c => c.status === funnelFiltro)
+        .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
+        .slice(0, 8)
+    : [...consultas]
+        .filter(c => c.status === "AGENDADA" && new Date(c.dataHora) > new Date())
+        .sort((a, b) => new Date(a.dataHora) - new Date(b.dataHora))
+        .slice(0, 5);
+
+  const tabelaTitulo = funnelFiltro
+    ? FUNIL_ITENS.find(f => f.status === funnelFiltro)?.label + " — detalhamento"
+    : "Próximas consultas";
+
+  function toggleFiltro(status) {
+    setFunnelFiltro(prev => prev === status ? null : status);
+  }
 
   return (
     <div>
@@ -680,35 +720,164 @@ function Dashboard({ consultas, pacientes, user }) {
           <div style={styles.pageTitle}>Olá, {user.nome.split(" ")[0]} 👋</div>
           <div style={styles.pageSubtitle}>{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}</div>
         </div>
+        {funnelFiltro && (
+          <button style={styles.btnSm()} onClick={() => setFunnelFiltro(null)}>
+            ✕ Limpar filtro
+          </button>
+        )}
       </div>
 
       <div style={styles.metricsGrid}>
-        <MetricCard icon="📅" label="Hoje" value={hoje_consultas} color={palette.teal} />
-        <MetricCard icon="⏳" label="Agendadas" value={agendadas} color={palette.amber} />
-        <MetricCard icon="✅" label="Realizadas" value={realizadas} color={palette.success} />
-        {isMedico && <MetricCard icon="👥" label="Pacientes" value={pacientes.length} color="#534AB7" />}
-        {!isMedico && <MetricCard icon="❌" label="Canceladas" value={canceladas} color={palette.danger} />}
+        <MetricCard icon="📅" label="Hoje"      value={hoje_consultas} color={palette.teal} />
+        <MetricCard icon="⏳" label="Agendadas" value={agendadas}       color={palette.amber} />
+        <MetricCard icon="✅" label="Realizadas" value={realizadas}     color={palette.success} />
+        {isMedico  && <MetricCard icon="👥" label="Pacientes"  value={pacientes.length} color="#534AB7" />}
+        {!isMedico && <MetricCard icon="❌" label="Canceladas" value={canceladas}        color={palette.danger} />}
       </div>
 
+      {/* Funil + Pacientes */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
+
+        {/* Funil clicável */}
+        <div style={styles.tableCard}>
+          <div style={styles.tableHeader}>
+            <div style={styles.tableTitle}>Funil de consultas</div>
+            <div style={{ fontSize: "0.78rem", color: palette.muted }}>
+              {funnelFiltro
+                ? <span style={{ color: FUNIL_ITENS.find(f=>f.status===funnelFiltro)?.color, fontWeight: "700" }}>
+                    Filtro ativo — clique novamente para limpar
+                  </span>
+                : `${consultas.length} total — clique para filtrar`
+              }
+            </div>
+          </div>
+          <div style={{ padding: "1.25rem 1.5rem", display: "flex", flexDirection: "column", gap: "0.625rem" }}>
+            {FUNIL_ITENS.map(({ status, label, count, color, bg, icon }) => {
+              const pct     = Math.round((count / (consultas.length || 1)) * 100);
+              const ativo   = funnelFiltro === status;
+              const inativo = funnelFiltro && !ativo;
+              return (
+                <div
+                  key={status}
+                  onClick={() => toggleFiltro(status)}
+                  style={{
+                    borderRadius: "10px",
+                    padding: "0.75rem 1rem",
+                    border: `2px solid ${ativo ? color : "transparent"}`,
+                    background: ativo ? bg : inativo ? palette.sand : palette.white,
+                    cursor: "pointer",
+                    opacity: inativo ? 0.45 : 1,
+                    transition: "all 0.18s ease",
+                    boxShadow: ativo ? `0 0 0 3px ${color}22` : "none",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <span style={{ fontSize: "1rem" }}>{icon}</span>
+                      <span style={{ fontSize: "0.875rem", fontWeight: "700", color: ativo ? color : palette.navy }}>
+                        {label}
+                      </span>
+                      {ativo && (
+                        <span style={{ fontSize: "0.65rem", background: color, color: "#fff", borderRadius: "4px", padding: "0.1rem 0.45rem", fontWeight: "700", letterSpacing: "0.03em" }}>
+                          SELECIONADO
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                      <span style={{ fontSize: "1.15rem", fontWeight: "800", color }}>{count}</span>
+                      <span style={{ fontSize: "0.72rem", color: ativo ? color : palette.muted, background: inativo ? palette.sandDark : bg, padding: "0.15rem 0.5rem", borderRadius: "4px", fontWeight: "700" }}>
+                        {pct}%
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ height: "7px", background: inativo ? palette.sandDark : `${color}22`, borderRadius: "99px", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: "99px", transition: "width 0.5s ease", opacity: inativo ? 0.35 : 1 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Pacientes — reage ao funil */}
+        <div style={styles.tableCard}>
+          <div style={styles.tableHeader}>
+            <div style={styles.tableTitle}>
+              {funnelFiltro
+                ? `Pacientes — ${FUNIL_ITENS.find(f=>f.status===funnelFiltro)?.label.toLowerCase()}`
+                : "Consultas por paciente"}
+            </div>
+            <div style={{ fontSize: "0.78rem", color: palette.muted }}>Top {patientStats.length}</div>
+          </div>
+          {patientStats.length === 0 ? (
+            <div style={styles.emptyState}>Nenhum resultado.</div>
+          ) : (
+            <div style={{ padding: "0.75rem 1.5rem 1.25rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 0.75rem", alignItems: "center", marginBottom: "0.5rem", paddingBottom: "0.5rem", borderBottom: `1px solid ${palette.border}` }}>
+                <span style={{ fontSize: "0.68rem", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.06em", color: palette.muted }}>Paciente / CPF</span>
+                <span style={{ fontSize: "0.68rem", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.06em", color: palette.amber,   textAlign: "center" }}>Ag.</span>
+                <span style={{ fontSize: "0.68rem", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.06em", color: palette.success,  textAlign: "center" }}>Re.</span>
+                <span style={{ fontSize: "0.68rem", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.06em", color: palette.danger,   textAlign: "center" }}>Ca.</span>
+              </div>
+              {patientStats.map(p => {
+                const filtColor = funnelFiltro ? FUNIL_ITENS.find(f=>f.status===funnelFiltro)?.color : null;
+                const filtBg    = funnelFiltro ? FUNIL_ITENS.find(f=>f.status===funnelFiltro)?.bg    : null;
+                return (
+                  <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 0.75rem", alignItems: "center", padding: "0.5rem 0", borderBottom: `1px solid ${palette.border}` }}>
+                    <div>
+                      <div style={{ fontSize: "0.82rem", fontWeight: "600", color: palette.navy, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nome}</div>
+                      {p.cpf && <div style={{ fontSize: "0.7rem", color: palette.muted, fontFamily: "monospace" }}>{p.cpf}</div>}
+                    </div>
+                    {/* Ag */}
+                    <div style={{ width: "28px", height: "28px", borderRadius: "6px", background: funnelFiltro === "AGENDADA" ? filtBg : palette.amberLight, color: funnelFiltro === "AGENDADA" ? filtColor : palette.amber, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.8rem", fontWeight: funnelFiltro === "AGENDADA" ? "800" : "700", border: funnelFiltro === "AGENDADA" ? `1.5px solid ${filtColor}` : "none" }}>{p.agendadas}</div>
+                    {/* Re */}
+                    <div style={{ width: "28px", height: "28px", borderRadius: "6px", background: funnelFiltro === "REALIZADA" ? filtBg : palette.successLight, color: funnelFiltro === "REALIZADA" ? filtColor : palette.success, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.8rem", fontWeight: funnelFiltro === "REALIZADA" ? "800" : "700", border: funnelFiltro === "REALIZADA" ? `1.5px solid ${filtColor}` : "none" }}>{p.realizadas}</div>
+                    {/* Ca */}
+                    <div style={{ width: "28px", height: "28px", borderRadius: "6px", background: funnelFiltro === "CANCELADA" ? filtBg : palette.dangerLight, color: funnelFiltro === "CANCELADA" ? filtColor : palette.danger, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.8rem", fontWeight: funnelFiltro === "CANCELADA" ? "800" : "700", border: funnelFiltro === "CANCELADA" ? `1.5px solid ${filtColor}` : "none" }}>{p.canceladas}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Tabela reativa */}
       <div style={styles.tableCard}>
         <div style={styles.tableHeader}>
-          <div style={styles.tableTitle}>Próximas consultas</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+            <div style={styles.tableTitle}>{tabelaTitulo}</div>
+            {funnelFiltro && (
+              <span style={{
+                fontSize: "0.72rem", fontWeight: "700", padding: "0.2rem 0.6rem", borderRadius: "6px",
+                background: FUNIL_ITENS.find(f=>f.status===funnelFiltro)?.bg,
+                color: FUNIL_ITENS.find(f=>f.status===funnelFiltro)?.color,
+              }}>
+                {FUNIL_ITENS.find(f=>f.status===funnelFiltro)?.icon} {tabelaConsultas.length} registros
+              </span>
+            )}
+          </div>
+          {funnelFiltro && (
+            <button style={styles.btnSm()} onClick={() => setFunnelFiltro(null)}>Limpar filtro</button>
+          )}
         </div>
-        {proximas.length === 0 ? (
-          <div style={styles.emptyState}>Nenhuma consulta agendada.</div>
+        {tabelaConsultas.length === 0 ? (
+          <div style={styles.emptyState}>Nenhuma consulta encontrada.</div>
         ) : (
           <table style={styles.table}>
             <thead>
               <tr>
                 <th style={styles.th}>Paciente</th>
+                <th style={styles.th}>CPF</th>
                 <th style={styles.th}>Data & Hora</th>
                 <th style={styles.th}>Status</th>
               </tr>
             </thead>
             <tbody>
-              {proximas.map(c => (
+              {tabelaConsultas.map(c => (
                 <tr key={c.id}>
                   <td style={styles.td}><strong>{c.paciente?.nomeCompleto || "—"}</strong></td>
+                  <td style={{ ...styles.td, fontFamily: "monospace", fontSize: "0.82rem", color: palette.muted }}>{c.paciente?.cpf || "—"}</td>
                   <td style={styles.td}>{new Date(c.dataHora).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
                   <td style={styles.td}><Badge type={c.status} /></td>
                 </tr>
@@ -747,7 +916,8 @@ function ConsultasPage({ consultas, pacientes, user, token, onRefresh }) {
 
   const filtered = consultas.filter(c => {
     const nome = c.paciente?.nomeCompleto?.toLowerCase() || "";
-    return (!search || nome.includes(search.toLowerCase())) &&
+    const cpf = c.paciente?.cpf || "";
+    return (!search || nome.includes(search.toLowerCase()) || cpf.includes(search)) &&
       (!filterStatus || c.status === filterStatus);
   });
 
@@ -824,7 +994,7 @@ function ConsultasPage({ consultas, pacientes, user, token, onRefresh }) {
       const res = await fetch(`${API}/consultas/${selected.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...selected, registroAtendimento: prontuario }),
+        body: JSON.stringify({ ...selected, registroAtendimento: prontuario, status: prontuario.trim() ? "REALIZADA" : selected.status }),
       });
       if (!res.ok) throw new Error("Erro ao salvar prontuário");
       onRefresh();
@@ -852,7 +1022,7 @@ function ConsultasPage({ consultas, pacientes, user, token, onRefresh }) {
       </div>
 
       <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem" }}>
-        <input style={styles.searchInput} placeholder="Buscar por paciente..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input style={styles.searchInput} placeholder="Buscar por nome ou CPF..." value={search} onChange={e => setSearch(e.target.value)} />
         <select style={{ ...styles.searchInput, width: "160px" }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
           <option value="">Todos status</option>
           <option value="AGENDADA">Agendada</option>
@@ -869,6 +1039,7 @@ function ConsultasPage({ consultas, pacientes, user, token, onRefresh }) {
             <thead>
               <tr>
                 <th style={styles.th}>Paciente</th>
+                <th style={styles.th}>CPF</th>
                 <th style={styles.th}>Data & Hora</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Observações</th>
@@ -879,13 +1050,16 @@ function ConsultasPage({ consultas, pacientes, user, token, onRefresh }) {
               {filtered.map(c => (
                 <tr key={c.id} style={{ transition: "background 0.1s" }}>
                   <td style={styles.td}><strong>{c.paciente?.nomeCompleto || "—"}</strong></td>
+                  <td style={{ ...styles.td, fontFamily: "monospace", fontSize: "0.82rem", color: palette.muted }}>{c.paciente?.cpf || "—"}</td>
                   <td style={styles.td}>{c.dataHora ? new Date(c.dataHora).toLocaleString("pt-BR") : "—"}</td>
                   <td style={styles.td}><Badge type={c.status} /></td>
                   <td style={{ ...styles.td, color: palette.muted, maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.observacoesAgendamento || "—"}</td>
                   <td style={styles.td}>
                     <div style={{ display: "flex", gap: "0.4rem" }}>
                       <button style={styles.btnSm()} onClick={() => openEdit(c)}>Editar</button>
-                      {isMedico && <button style={styles.btnSm()} onClick={() => openProntuario(c)}>Prontuário</button>}
+                      <button style={styles.btnSm()} onClick={() => openProntuario(c)}>
+                        {isMedico ? "Prontuário" : "Ver prontuário"}
+                      </button>
                       <button style={styles.btnSm("danger")} onClick={() => handleDelete(c.id)}>✕</button>
                     </div>
                   </td>
@@ -917,24 +1091,50 @@ function ConsultasPage({ consultas, pacientes, user, token, onRefresh }) {
 
       {modal === "prontuario" && (
         <Modal title={`Prontuário — ${selected?.paciente?.nomeCompleto}`} onClose={() => setModal(null)}>
+          <div style={{ marginBottom: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+            <Badge type={selected?.status} />
+            <span style={{ fontSize: "0.82rem", color: palette.muted }}>
+              {selected?.dataHora ? new Date(selected.dataHora).toLocaleString("pt-BR") : ""}
+            </span>
+            {selected?.paciente?.cpf && (
+              <span style={{ fontSize: "0.78rem", fontFamily: "monospace", color: palette.muted }}>
+                CPF: {selected.paciente.cpf}
+              </span>
+            )}
+          </div>
+          {selected?.observacoesAgendamento && (
+            <div style={{ background: palette.amberLight, borderRadius: "8px", padding: "0.6rem 0.875rem", fontSize: "0.8rem", color: palette.amber, marginBottom: "0.875rem", borderLeft: `3px solid ${palette.amber}` }}>
+              <strong>Obs. agendamento:</strong> {selected.observacoesAgendamento}
+            </div>
+          )}
           <div style={{ ...styles.inputGroup }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
               <label style={styles.label}>Registro de atendimento</label>
-              <VoiceButton
-                compact
-                onTranscript={txt => setProntuario(prev => prev ? prev + " " + txt : txt)}
-              />
+              {isMedico && (
+                <VoiceButton
+                  compact
+                  onTranscript={txt => setProntuario(prev => prev ? prev + " " + txt : txt)}
+                />
+              )}
             </div>
             <textarea
               style={{ ...styles.input, minHeight: "200px", resize: "vertical", fontFamily: "monospace", fontSize: "0.875rem" }}
               value={prontuario}
-              onChange={e => setProntuario(e.target.value)}
-              placeholder="Descreva o atendimento realizado, diagnóstico, prescrições... (ou use 🎙 para gravar)"
+              onChange={e => isMedico && setProntuario(e.target.value)}
+              readOnly={!isMedico}
+              placeholder={isMedico ? "Descreva o atendimento realizado, diagnóstico, prescrições... (ou use 🎙 para gravar)" : "Sem registro de atendimento."}
             />
           </div>
+          {isMedico && (
+            <div style={{ background: palette.tealLight, borderRadius: "8px", padding: "0.6rem 0.875rem", fontSize: "0.78rem", color: palette.tealMid, marginBottom: "1rem" }}>
+              💡 Ao salvar com texto preenchido, a consulta será marcada automaticamente como <strong>Realizada</strong>.
+            </div>
+          )}
           <div style={styles.formActions}>
-            <button style={styles.btnSm()} onClick={() => setModal(null)}>Cancelar</button>
-            <button style={styles.btnSm("primary")} onClick={handleSaveProntuario} disabled={loading}>{loading ? "Salvando..." : "Salvar prontuário"}</button>
+            <button style={styles.btnSm()} onClick={() => setModal(null)}>{isMedico ? "Cancelar" : "Fechar"}</button>
+            {isMedico && (
+              <button style={styles.btnSm("primary")} onClick={handleSaveProntuario} disabled={loading}>{loading ? "Salvando..." : "Salvar prontuário"}</button>
+            )}
           </div>
         </Modal>
       )}
@@ -974,18 +1174,30 @@ function PacientesPage({ pacientes, consultas, token, onRefresh, user }) {
     setModal("historico");
   }
 
+  const [saveError, setSaveError] = useState("");
+
   async function handleSave() {
+    setSaveError("");
     setLoading(true);
     try {
-      if (!selected) {
-        await fetch(`${API}/pacientes`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(form) });
-      } else {
-        await fetch(`${API}/pacientes/${selected.id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(form) });
+      const url    = selected ? `${API}/pacientes/${selected.id}` : `${API}/pacientes`;
+      const method = selected ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || `Erro ${res.status}`);
       }
       onRefresh();
       setModal(null);
-    } catch { }
-    setLoading(false);
+    } catch (e) {
+      setSaveError(e.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleDelete(id) {
@@ -1007,12 +1219,12 @@ function PacientesPage({ pacientes, consultas, token, onRefresh, user }) {
             <div style={styles.pageSubtitle}>{filtered.length} cadastrado(s)</div>
             {!isMedico && (
               <span style={{ ...styles.badge("ASSISTENTE"), fontSize: "0.7rem" }}>
-                👁️ Somente visualização
+                ✏️ Pode criar pacientes
               </span>
             )}
           </div>
         </div>
-        {isMedico && (
+        {(isMedico || true) && (
           <button style={styles.btnSm("primary")} onClick={openNew}>+ Novo paciente</button>
         )}
       </div>
@@ -1065,7 +1277,7 @@ function PacientesPage({ pacientes, consultas, token, onRefresh, user }) {
         )}
       </div>
 
-      {modal === "form" && isMedico && (
+      {modal === "form" && (isMedico || !selected) && (
         <Modal title={selected ? "Editar Paciente" : "Novo Paciente"} onClose={() => setModal(null)}>
           <div style={styles.formGrid2}>
             <div style={{ gridColumn: "1 / -1" }}>
@@ -1079,6 +1291,11 @@ function PacientesPage({ pacientes, consultas, token, onRefresh, user }) {
               <Textarea label="Observações clínicas" value={form.observacoes} onChange={e => setForm({ ...form, observacoes: e.target.value })} placeholder="Alergias, condições pré-existentes..." />
             </div>
           </div>
+          {saveError && (
+            <div style={{ background: palette.dangerLight, color: palette.danger, padding: "0.65rem 1rem", borderRadius: "8px", fontSize: "0.82rem", marginTop: "0.75rem", border: "1px solid #F09595" }}>
+              ⚠️ {saveError}
+            </div>
+          )}
           <div style={styles.formActions}>
             <button style={styles.btnSm()} onClick={() => setModal(null)}>Cancelar</button>
             <button style={styles.btnSm("primary")} onClick={handleSave} disabled={loading}>{loading ? "Salvando..." : "Salvar"}</button>
@@ -1157,6 +1374,16 @@ function AcessoNegado() {
 function AgendaPage({ consultas, pacientes, user, token, onRefresh }) {
   const hoje = new Date();
   const [semanaOffset, setSemanaOffset] = useState(0);
+  const isMedico = user.role === "MEDICO";
+
+  // Modal states
+  const [modal, setModal] = useState(null); // "detalhes" | "novo" | "prontuario"
+  const [consultaSel, setConsultaSel] = useState(null);
+  const [novaDataHora, setNovaDataHora] = useState("");
+  const [novaForm, setNovaForm] = useState({ pacienteId: "", dataHora: "", observacoesAgendamento: "" });
+  const [prontuarioTexto, setProntuarioTexto] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   function getSegundaFeira(date, offset = 0) {
     const d = new Date(date);
@@ -1175,7 +1402,7 @@ function AgendaPage({ consultas, pacientes, user, token, onRefresh }) {
   });
 
   const nomesDias = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
-  const horasVisiveis = Array.from({ length: 11 }, (_, i) => i + 7); 
+  const horasVisiveis = Array.from({ length: 11 }, (_, i) => i + 7);
 
   function consultasNoDia(dia) {
     return consultas.filter(c => {
@@ -1187,19 +1414,113 @@ function AgendaPage({ consultas, pacientes, user, token, onRefresh }) {
     }).sort((a, b) => new Date(a.dataHora) - new Date(b.dataHora));
   }
 
-  function isHoje(d) {
-    return d.toDateString() === hoje.toDateString();
+  function isHoje(d) { return d.toDateString() === hoje.toDateString(); }
+
+  function fecharModal() {
+    setModal(null);
+    setConsultaSel(null);
+    setSaveError("");
+    setProntuarioTexto("");
+  }
+
+  // Clique numa consulta existente → detalhes
+  function abrirDetalhes(c, e) {
+    e.stopPropagation();
+    setConsultaSel(c);
+    setModal("detalhes");
+  }
+
+  // Clique em célula vazia → novo agendamento
+  function abrirNovo(dia, hora) {
+    const d = new Date(dia);
+    d.setHours(hora, 0, 0, 0);
+    const iso = d.toISOString().slice(0, 16);
+    setNovaForm({ pacienteId: pacientes[0]?.id || "", dataHora: iso, observacoesAgendamento: "" });
+    setModal("novo");
+  }
+
+  // Detalhes → abrir prontuário
+  function irParaProntuario() {
+    setProntuarioTexto(consultaSel.registroAtendimento || "");
+    setModal("prontuario");
+  }
+
+  async function salvarNovaConsulta() {
+    setSaveError("");
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/consultas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          paciente: { id: Number(novaForm.pacienteId) },
+          dataHora: novaForm.dataHora,
+          status: "AGENDADA",
+          observacoesAgendamento: novaForm.observacoesAgendamento,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || `Erro ${res.status}`);
+      }
+      onRefresh();
+      fecharModal();
+    } catch (e) {
+      setSaveError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function salvarProntuario() {
+    setSaveError("");
+    setSaving(true);
+    try {
+      const res = await fetch(`${API}/consultas/${consultaSel.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          ...consultaSel,
+          registroAtendimento: prontuarioTexto,
+          status: prontuarioTexto.trim() ? "REALIZADA" : consultaSel.status,
+        }),
+      });
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      onRefresh();
+      fecharModal();
+    } catch (e) {
+      setSaveError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function cancelarConsulta() {
+    if (!window.confirm("Cancelar esta consulta?")) return;
+    setSaving(true);
+    try {
+      await fetch(`${API}/consultas/${consultaSel.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...consultaSel, status: "CANCELADA" }),
+      });
+      onRefresh();
+      fecharModal();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   const statusBg = {
-    AGENDADA: { bg: palette.amberLight, border: palette.amber, text: palette.amber },
-    REALIZADA: { bg: palette.tealLight, border: palette.tealMid, text: palette.tealMid },
-    CANCELADA: { bg: palette.dangerLight, border: palette.danger, text: palette.danger },
+    AGENDADA:  { bg: palette.amberLight,   border: palette.amber,   text: palette.amber   },
+    REALIZADA: { bg: palette.tealLight,    border: palette.tealMid, text: palette.tealMid },
+    CANCELADA: { bg: palette.dangerLight,  border: palette.danger,  text: palette.danger  },
   };
 
-  const labelSemana = semanaOffset === 0
-    ? "Esta semana"
-    : semanaOffset === 1 ? "Próxima semana"
+  const labelSemana = semanaOffset === 0 ? "Esta semana"
+    : semanaOffset === 1  ? "Próxima semana"
     : semanaOffset === -1 ? "Semana passada"
     : `${segunda.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} – ${diasSemana[6].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}`;
 
@@ -1218,81 +1539,92 @@ function AgendaPage({ consultas, pacientes, user, token, onRefresh }) {
       </div>
 
       <div style={{ ...styles.tableCard, overflow: "hidden" }}>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "64px repeat(7, 1fr)",
-          borderBottom: `1px solid ${palette.border}`,
-          background: palette.sand,
-        }}>
+        {/* Cabeçalho dos dias */}
+        <div style={{ display: "grid", gridTemplateColumns: "64px repeat(7, 1fr)", borderBottom: `1px solid ${palette.border}`, background: palette.sand }}>
           <div style={{ padding: "0.75rem", borderRight: `1px solid ${palette.border}` }} />
           {diasSemana.map((dia, i) => (
             <div key={i} style={{
-              padding: "0.75rem 0.5rem",
-              textAlign: "center",
+              padding: "0.75rem 0.5rem", textAlign: "center",
               borderRight: i < 6 ? `1px solid ${palette.border}` : "none",
               background: isHoje(dia) ? palette.tealLight : "transparent",
             }}>
               <div style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.08em", color: isHoje(dia) ? palette.tealMid : palette.muted, fontWeight: "600" }}>
                 {nomesDias[i]}
               </div>
-              <div style={{
-                fontSize: "1.1rem", fontWeight: "700",
-                color: isHoje(dia) ? palette.teal : palette.navy,
-                marginTop: "0.1rem",
-              }}>
+              <div style={{ fontSize: "1.1rem", fontWeight: "700", color: isHoje(dia) ? palette.teal : palette.navy, marginTop: "0.1rem" }}>
                 {dia.getDate()}
               </div>
             </div>
           ))}
         </div>
 
-        <div style={{ overflowY: "auto", maxHeight: "520px" }}>
+        {/* Grade de horas */}
+        <div style={{ overflowY: "auto", maxHeight: "560px" }}>
           {horasVisiveis.map(hora => (
-            <div key={hora} style={{
-              display: "grid",
-              gridTemplateColumns: "64px repeat(7, 1fr)",
-              borderBottom: `1px solid ${palette.border}`,
-              minHeight: "72px",
-            }}>
-              <div style={{
-                padding: "0.5rem 0.75rem",
-                fontSize: "0.72rem", color: palette.muted, fontWeight: "600",
-                borderRight: `1px solid ${palette.border}`,
-                paddingTop: "0.4rem",
-                background: palette.sand,
-              }}>
+            <div key={hora} style={{ display: "grid", gridTemplateColumns: "64px repeat(7, 1fr)", borderBottom: `1px solid ${palette.border}`, minHeight: "80px" }}>
+              {/* Label da hora */}
+              <div style={{ padding: "0.5rem 0.75rem", fontSize: "0.72rem", color: palette.muted, fontWeight: "600", borderRight: `1px solid ${palette.border}`, background: palette.sand, paddingTop: "0.4rem" }}>
                 {String(hora).padStart(2, "0")}:00
               </div>
 
               {diasSemana.map((dia, di) => {
-                const consultasDaHora = consultasNoDia(dia).filter(c => {
-                  const h = new Date(c.dataHora).getHours();
-                  return h === hora;
-                });
+                const consultasDaHora = consultasNoDia(dia).filter(c => new Date(c.dataHora).getHours() === hora);
+                const vazia = consultasDaHora.length === 0;
                 return (
-                  <div key={di} style={{
-                    padding: "4px",
-                    borderRight: di < 6 ? `1px solid ${palette.border}` : "none",
-                    background: isHoje(dia) ? "#f0faf7" : "transparent",
-                    verticalAlign: "top",
-                  }}>
+                  <div
+                    key={di}
+                    onClick={() => vazia && abrirNovo(dia, hora)}
+                    style={{
+                      padding: "4px",
+                      borderRight: di < 6 ? `1px solid ${palette.border}` : "none",
+                      background: isHoje(dia) ? "#f0faf7" : "transparent",
+                      verticalAlign: "top",
+                      cursor: vazia ? "pointer" : "default",
+                      transition: "background 0.12s",
+                      position: "relative",
+                    }}
+                    onMouseEnter={e => { if (vazia) e.currentTarget.style.background = isHoje(dia) ? "#d8f3ea" : palette.tealLight + "55"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = isHoje(dia) ? "#f0faf7" : "transparent"; }}
+                    title={vazia ? `Agendar às ${String(hora).padStart(2,"0")}:00 de ${dia.toLocaleDateString("pt-BR")}` : ""}
+                  >
+                    {vazia && (
+                      <div style={{
+                        position: "absolute", inset: "4px", display: "flex", alignItems: "center", justifyContent: "center",
+                        opacity: 0, transition: "opacity 0.15s", pointerEvents: "none",
+                      }}
+                        className="add-hint"
+                      >
+                        <span style={{ fontSize: "1.1rem", color: palette.tealMid }}>＋</span>
+                      </div>
+                    )}
+
                     {consultasDaHora.map(c => {
                       const s = statusBg[c.status] || statusBg.AGENDADA;
                       const min = new Date(c.dataHora).getMinutes();
                       return (
-                        <div key={c.id} style={{
-                          background: s.bg,
-                          borderLeft: `3px solid ${s.border}`,
-                          borderRadius: "6px",
-                          padding: "4px 6px",
-                          marginBottom: "3px",
-                          cursor: "default",
-                        }}>
+                        <div
+                          key={c.id}
+                          onClick={e => abrirDetalhes(c, e)}
+                          style={{
+                            background: s.bg,
+                            borderLeft: `3px solid ${s.border}`,
+                            borderRadius: "6px",
+                            padding: "5px 7px",
+                            marginBottom: "3px",
+                            cursor: "pointer",
+                            transition: "filter 0.12s, transform 0.1s",
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.filter = "brightness(0.95)"; e.currentTarget.style.transform = "scale(1.01)"; }}
+                          onMouseLeave={e => { e.currentTarget.style.filter = "none"; e.currentTarget.style.transform = "none"; }}
+                        >
                           <div style={{ fontSize: "0.72rem", fontWeight: "700", color: s.text }}>
                             {String(hora).padStart(2, "0")}:{String(min).padStart(2, "0")}
                           </div>
-                          <div style={{ fontSize: "0.75rem", color: palette.navy, fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <div style={{ fontSize: "0.78rem", color: palette.navy, fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {c.paciente?.nomeCompleto?.split(" ")[0] || "—"}
+                          </div>
+                          <div style={{ fontSize: "0.68rem", color: s.text, marginTop: "1px" }}>
+                            {c.status === "AGENDADA" ? "ver detalhes →" : c.status === "REALIZADA" ? "✓ realizada" : "✕ cancelada"}
                           </div>
                         </div>
                       );
@@ -1305,7 +1637,8 @@ function AgendaPage({ consultas, pacientes, user, token, onRefresh }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: "1rem", marginTop: "1rem", alignItems: "center" }}>
+      {/* Legenda */}
+      <div style={{ display: "flex", gap: "1.5rem", marginTop: "0.875rem", alignItems: "center" }}>
         <span style={{ fontSize: "0.78rem", color: palette.muted }}>Legenda:</span>
         {[["AGENDADA", "Agendada"], ["REALIZADA", "Realizada"], ["CANCELADA", "Cancelada"]].map(([k, label]) => (
           <div key={k} style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
@@ -1313,7 +1646,149 @@ function AgendaPage({ consultas, pacientes, user, token, onRefresh }) {
             <span style={{ fontSize: "0.78rem", color: palette.muted }}>{label}</span>
           </div>
         ))}
+        <span style={{ fontSize: "0.78rem", color: palette.muted, marginLeft: "auto" }}>
+          💡 Clique em uma consulta para ver detalhes · Clique em horário vazio para agendar
+        </span>
       </div>
+
+      {/* ── MODAL: DETALHES DA CONSULTA ── */}
+      {modal === "detalhes" && consultaSel && (
+        <Modal title="Detalhes da consulta" onClose={fecharModal}>
+          {/* Cabeçalho do paciente */}
+          <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.25rem", padding: "1rem", background: palette.sand, borderRadius: "10px" }}>
+            <div style={{ width: "46px", height: "46px", borderRadius: "50%", background: palette.teal, color: palette.white, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem", fontWeight: "700", flexShrink: 0 }}>
+              {consultaSel.paciente?.nomeCompleto?.split(" ").map(w => w[0]).slice(0,2).join("") || "?"}
+            </div>
+            <div>
+              <div style={{ fontWeight: "700", fontSize: "1rem", color: palette.navy }}>{consultaSel.paciente?.nomeCompleto || "—"}</div>
+              <div style={{ fontSize: "0.78rem", color: palette.muted, marginTop: "0.15rem" }}>
+                {consultaSel.paciente?.cpf && <span style={{ fontFamily: "monospace" }}>CPF: {consultaSel.paciente.cpf}</span>}
+                {consultaSel.paciente?.telefone && <span style={{ marginLeft: "0.75rem" }}>📞 {consultaSel.paciente.telefone}</span>}
+              </div>
+            </div>
+            <div style={{ marginLeft: "auto" }}><Badge type={consultaSel.status} /></div>
+          </div>
+
+          {/* Info da consulta */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+            <div style={{ background: palette.white, border: `1px solid ${palette.border}`, borderRadius: "8px", padding: "0.75rem 1rem" }}>
+              <div style={{ fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: "0.07em", color: palette.muted, fontWeight: "700", marginBottom: "0.25rem" }}>Data & Hora</div>
+              <div style={{ fontWeight: "600", color: palette.navy }}>
+                {new Date(consultaSel.dataHora).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </div>
+            </div>
+            <div style={{ background: palette.white, border: `1px solid ${palette.border}`, borderRadius: "8px", padding: "0.75rem 1rem" }}>
+              <div style={{ fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: "0.07em", color: palette.muted, fontWeight: "700", marginBottom: "0.25rem" }}>Status</div>
+              <div style={{ fontWeight: "600", color: statusBg[consultaSel.status]?.text || palette.muted }}>
+                {consultaSel.status === "AGENDADA" ? "⏳ Agendada" : consultaSel.status === "REALIZADA" ? "✅ Realizada" : "❌ Cancelada"}
+              </div>
+            </div>
+          </div>
+
+          {consultaSel.observacoesAgendamento && (
+            <div style={{ background: palette.amberLight, borderRadius: "8px", padding: "0.75rem 1rem", fontSize: "0.85rem", color: palette.amber, marginBottom: "1rem", borderLeft: `3px solid ${palette.amber}` }}>
+              <div style={{ fontSize: "0.68rem", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.25rem" }}>Observações</div>
+              {consultaSel.observacoesAgendamento}
+            </div>
+          )}
+
+          {/* Prontuário existente — qualquer um pode ver o resumo, médico pode editar */}
+          {consultaSel.registroAtendimento && (
+            <div style={{ background: palette.tealLight, borderRadius: "8px", padding: "0.75rem 1rem", fontSize: "0.85rem", color: palette.tealMid, marginBottom: "1rem", borderLeft: `3px solid ${palette.tealMid}` }}>
+              <div style={{ fontSize: "0.68rem", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "0.25rem" }}>Registro de atendimento</div>
+              <div style={{ color: palette.ink, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+                {consultaSel.registroAtendimento.length > 200
+                  ? consultaSel.registroAtendimento.slice(0, 200) + "…"
+                  : consultaSel.registroAtendimento}
+              </div>
+            </div>
+          )}
+
+          <div style={styles.formActions}>
+            {/* Cancelar consulta — qualquer um pode cancelar se ainda for agendada */}
+            {consultaSel.status === "AGENDADA" && (
+              <button style={styles.btnSm("danger")} onClick={cancelarConsulta} disabled={saving}>
+                Cancelar consulta
+              </button>
+            )}
+            <button style={styles.btnSm()} onClick={fecharModal}>Fechar</button>
+            {/* Médico vê botão de prontuário */}
+            {isMedico && (
+              <button style={styles.btnSm("primary")} onClick={irParaProntuario}>
+                📋 {consultaSel.registroAtendimento ? "Editar prontuário" : "Fazer prontuário"}
+              </button>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* ── MODAL: NOVO AGENDAMENTO ── */}
+      {modal === "novo" && (
+        <Modal title="Novo agendamento" onClose={fecharModal}>
+          <div style={{ background: palette.tealLight, borderRadius: "8px", padding: "0.6rem 1rem", fontSize: "0.82rem", color: palette.tealMid, marginBottom: "1.25rem" }}>
+            📅 Agendando para: <strong>{new Date(novaForm.dataHora).toLocaleString("pt-BR", { weekday: "long", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" })}</strong>
+          </div>
+          <Select label="Paciente" value={novaForm.pacienteId} onChange={e => setNovaForm({ ...novaForm, pacienteId: e.target.value })}>
+            {pacientes.map(p => <option key={p.id} value={p.id}>{p.nomeCompleto}{p.cpf ? ` — ${p.cpf}` : ""}</option>)}
+          </Select>
+          <Input label="Data e Hora" type="datetime-local" value={novaForm.dataHora} onChange={e => setNovaForm({ ...novaForm, dataHora: e.target.value })} />
+          <Textarea label="Observações" value={novaForm.observacoesAgendamento} onChange={e => setNovaForm({ ...novaForm, observacoesAgendamento: e.target.value })} placeholder="Motivo da consulta, observações..." />
+          {saveError && (
+            <div style={{ background: palette.dangerLight, color: palette.danger, padding: "0.65rem 1rem", borderRadius: "8px", fontSize: "0.82rem", marginTop: "0.5rem", border: "1px solid #F09595" }}>
+              ⚠️ {saveError}
+            </div>
+          )}
+          <div style={styles.formActions}>
+            <button style={styles.btnSm()} onClick={fecharModal}>Cancelar</button>
+            <button style={styles.btnSm("primary")} onClick={salvarNovaConsulta} disabled={saving}>
+              {saving ? "Agendando..." : "Confirmar agendamento"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── MODAL: PRONTUÁRIO (médico) ── */}
+      {modal === "prontuario" && consultaSel && (
+        <Modal title={`📋 Prontuário — ${consultaSel.paciente?.nomeCompleto}`} onClose={fecharModal}>
+          <div style={{ marginBottom: "0.75rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+            <Badge type={consultaSel.status} />
+            <span style={{ fontSize: "0.82rem", color: palette.muted }}>{new Date(consultaSel.dataHora).toLocaleString("pt-BR")}</span>
+            {consultaSel.paciente?.cpf && <span style={{ fontSize: "0.78rem", fontFamily: "monospace", color: palette.muted }}>CPF: {consultaSel.paciente.cpf}</span>}
+          </div>
+          {consultaSel.observacoesAgendamento && (
+            <div style={{ background: palette.amberLight, borderRadius: "8px", padding: "0.6rem 0.875rem", fontSize: "0.8rem", color: palette.amber, marginBottom: "0.875rem", borderLeft: `3px solid ${palette.amber}` }}>
+              <strong>Obs. agendamento:</strong> {consultaSel.observacoesAgendamento}
+            </div>
+          )}
+          <div style={styles.inputGroup}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
+              <label style={styles.label}>Registro de atendimento</label>
+              <VoiceButton compact onTranscript={txt => setProntuarioTexto(prev => prev ? prev + " " + txt : txt)} />
+            </div>
+            <textarea
+              style={{ ...styles.input, minHeight: "180px", resize: "vertical", fontFamily: "monospace", fontSize: "0.875rem", width: "100%", boxSizing: "border-box" }}
+              value={prontuarioTexto}
+              onChange={e => setProntuarioTexto(e.target.value)}
+              placeholder="Descreva o atendimento, diagnóstico, prescrições... (ou use 🎙 para gravar)"
+              autoFocus
+            />
+          </div>
+          <div style={{ background: palette.tealLight, borderRadius: "8px", padding: "0.6rem 0.875rem", fontSize: "0.78rem", color: palette.tealMid, marginBottom: "1rem" }}>
+            💡 Ao salvar com texto preenchido, a consulta será marcada como <strong>Realizada</strong>.
+          </div>
+          {saveError && (
+            <div style={{ background: palette.dangerLight, color: palette.danger, padding: "0.65rem 1rem", borderRadius: "8px", fontSize: "0.82rem", marginBottom: "0.75rem", border: "1px solid #F09595" }}>
+              ⚠️ {saveError}
+            </div>
+          )}
+          <div style={styles.formActions}>
+            <button style={styles.btnSm()} onClick={() => setModal("detalhes")}>← Voltar</button>
+            <button style={styles.btnSm("primary")} onClick={salvarProntuario} disabled={saving}>
+              {saving ? "Salvando..." : "Salvar prontuário"}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
